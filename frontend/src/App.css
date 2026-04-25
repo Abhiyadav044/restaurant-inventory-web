@@ -400,4 +400,100 @@ body {
   justify-content:center;
   margin-top:20px;
 }
- 
+
+@media print {
+  body {
+    background: white !important;
+    color: black !important;
+    margin: 0;
+    padding: 0;
+  }
+
+  .cards,
+  .add-section,
+  .charts-section,
+  .logout-wrap,
+  .btn,
+  input,
+  select {
+    display: none !important;
+  }
+
+  .page,
+  .glass-card,
+  .table-wrap {
+    background: white !important;
+    color: black !important;
+    box-shadow: none !important;
+    border: none !important;
+    width: 100% !important;
+    overflow: visible !important;
+  }
+
+  h1 {
+    font-size: 26px;
+    text-align: center;
+    margin-bottom: 5px;
+  }
+
+  h1::after {
+    content: " - Inventory Report";
+    display: block;
+    font-size: 16px;
+    margin-top: 4px;
+  }
+
+  table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+    font-size: 12px;
+  }
+
+  th, td {
+    border: 1px solid #333 !important;
+    padding: 6px !important;
+    color: black !important;
+    text-align: left;
+  }
+
+  tr, td, th {
+    page-break-inside: avoid;
+  }
+}
+
+.print-only {
+  display: none;
+}
+
+@media print {
+  .page > * {
+    display: none !important;
+  }
+
+  .print-only {
+    display: block !important;
+    color: black !important;
+    background: white !important;
+    padding: 20px;
+  }
+
+  .print-only h1 {
+    text-align: center;
+    font-size: 24px;
+    margin-bottom: 10px;
+  }
+
+  .print-only table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 20px;
+  }
+
+  .print-only th,
+  .print-only td {
+    border: 1px solid #333;
+    padding: 8px;
+    color: black;
+    font-size: 12px;
+  }
+}
