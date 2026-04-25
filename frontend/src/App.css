@@ -361,4 +361,36 @@ body {
     padding: 18px;
   }
 }
+.badge{
+  padding:6px 12px;
+  border-radius:999px;
+  font-size:12px;
+  font-weight:700;
+  display:inline-block;
+}
+
+.in-stock{
+  background:rgba(0,255,100,.15);
+  color:#52ff88;
+}
+
+.low-stock{
+  background:rgba(255,180,0,.15);
+  color:#ffd84d;
+}
+
+.expired{
+  background:rgba(255,0,0,.15);
+  color:#ff5a5a;
+}
+
+.expiring{
+  background:rgba(255,220,0,.15);
+  color:#ffd84d;
+}
+
+.fresh{
+  background:rgba(0,255,120,.15);
+  color:#52ff88;
+}
  

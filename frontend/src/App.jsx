@@ -134,20 +134,22 @@ function App() {
     }
   };
 
-  const handleDeleteItem = async (id) => {
+  const deleteItem = async (id) => {
+    const confirmDelete = window.confirm("Are you sure you want to delete this item?");
+    if (!confirmDelete) return;
+
     try {
       const res = await fetch(`${API_BASE}/items/${id}`, {
         method: "DELETE",
       });
 
-      const data = await res.json();
-
-      if (res.ok) {
-        fetchItems();
-      } else {
-        alert(data.detail || "Delete failed");
+      if (!res.ok) {
+        alert("Delete failed");
+        return;
       }
-    } catch {
+
+      fetchItems();
+    } catch (error) {
       alert("Server error");
     }
   };
@@ -438,8 +440,17 @@ function App() {
                       <td>{item.unit}</td>
                       <td>{item.low_limit}</td>
                       <td>{item.expiry}</td>
-                      <td className={getStockStatusClass(item)}>{getStockStatus(item)}</td>
-                      <td className={expiryInfo.className}>{expiryInfo.label}</td>
+                      <td>
+                        <span className={`badge ${getStockStatusClass(item)}`}>
+                          {getStockStatus(item)}
+                        </span>
+                      </td>
+
+                      <td>
+                        <span className={`badge ${expiryInfo.className}`}>
+                          {expiryInfo.label}
+                        </span>
+                      </td>  
                       <td>
                         <button className="btn btn-blue" onClick={() => handleEdit(item)}>Edit</button>
                         <button className="btn btn-red" onClick={() => handleDeleteItem(item.id)}>Delete</button>
