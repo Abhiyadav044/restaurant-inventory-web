@@ -173,6 +173,34 @@ function App() {
     return "In Stock";
   };
 
+  const exportCSV = () => {
+    const headers = ["ID", "Name", "Category", "Quantity", "Unit", "Low Limit", "Expiry"];
+
+    const rows = items.map((item) => [
+      item.id,
+      item.item_name,
+      item.category,
+      item.quantity,
+      item.unit,
+      item.low_limit,
+      item.expiry,
+    ]);
+
+    const csvContent = [headers, ...rows]
+      .map((row) => row.join(","))
+      .join("\n");
+
+    const blob = new Blob([csvContent], { type: "text/csv" });
+    const url = window.URL.createObjectURL(blob);
+
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "inventory-report.csv";
+    a.click();
+
+    window.URL.revokeObjectURL(url);
+  };
+
   const getStockStatusClass = (item) => {
     if (Number(item.quantity) === 0) return "status-out";
     if (Number(item.quantity) <= Number(item.low_limit)) return "status-low";
@@ -472,9 +500,15 @@ function App() {
         </div>
 
         <div className="logout-wrap">
+
+          <button className="btn btn-blue" onClick={exportCSV}>
+            Export CSV
+          </button>
+
           <button className="btn btn-gray" onClick={() => setUser(null)}>
             Logout
           </button>
+
         </div>
       </div>
     );

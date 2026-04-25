@@ -393,4 +393,11 @@ body {
   background:rgba(0,255,120,.15);
   color:#52ff88;
 }
+
+.logout-wrap{
+  display:flex;
+  gap:12px;
+  justify-content:center;
+  margin-top:20px;
+}
  
