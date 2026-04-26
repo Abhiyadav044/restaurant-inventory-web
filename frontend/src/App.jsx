@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
+import BarcodeScannerComponent from "react-qr-barcode-scanner";
 import {
   BarChart,
   Bar,
@@ -16,6 +17,21 @@ import {
 
 const API_BASE = "https://restaurant-inventory-web.onrender.com";
 
+const barcodeProducts = {
+  "1234567890": {
+    item_name: "Milk",
+    category: "Dairy",
+    unit: "litres",
+    low_limit: 5,
+  },
+  "9876543210": {
+    item_name: "Chicken",
+    category: "Meat",
+    unit: "kg",
+    low_limit: 10,
+  },
+};
+
 function App() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -26,6 +42,7 @@ function App() {
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("");
   const [stockFilter, setStockFilter] = useState("all");
+  const [showScanner, setShowScanner] = useState(false);
 
   const [form, setForm] = useState({
     item_name: "",
@@ -34,6 +51,7 @@ function App() {
     unit: "",
     low_limit: "",
     expiry: "",
+    barcode: "",
   });
 
   const itemRef = useRef(null);
@@ -355,6 +373,21 @@ function App() {
           </h2>
 
           <div className="form-grid">
+            <input
+              className="input"
+              placeholder="Barcode / SKU"
+              value={form.barcode || ""}
+              onChange={(e) =>
+                setForm({ ...form, barcode: e.target.value })
+              }
+            />
+            <button
+              className="btn btn-blue"
+              onClick={() => setShowScanner(true)}
+            >
+              Scan Barcode
+            </button>
+
             <input ref={itemRef} className="input" placeholder="Item Name" value={form.item_name} onChange={(e) => setForm({ ...form, item_name: e.target.value })} onKeyDown={(e) => handleEnter(e, categoryRef)} />
             <input ref={categoryRef} className="input" placeholder="Category" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} onKeyDown={(e) => handleEnter(e, quantityRef)} />
             <input ref={quantityRef} className="input" placeholder="Quantity" value={form.quantity} onChange={(e) => setForm({ ...form, quantity: e.target.value })} onKeyDown={(e) => handleEnter(e, unitRef)} />
@@ -362,6 +395,40 @@ function App() {
             <input ref={lowLimitRef} className="input" placeholder="Low Limit" value={form.low_limit} onChange={(e) => setForm({ ...form, low_limit: e.target.value })} onKeyDown={(e) => handleEnter(e, expiryRef)} />
             <input ref={expiryRef} className="input" placeholder="Expiry (DD-MM-YYYY)" value={form.expiry} onChange={(e) => setForm({ ...form, expiry: e.target.value })} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleAddItem(); } }} />
           </div>
+          
+          {showScanner && (
+            <div className="glass-card section-card">
+              <h2 className="section-title">Scan Barcode</h2>
+              <BarcodeScannerComponent
+                width={400}
+                height={300}
+                constraints={{facingmode:"environment"}}
+                onUpdate={(err, result) => {
+                  if (result) {
+                    const scannedCode = result.text;
+                    const product = barcodeProducts[scannedCode];
+
+                    setForm({
+                      ...form,
+                      barcode: scannedCode,
+                      item_name: product?.item_name || "",
+                      category: product?.category || "",
+                      unit: product?.unit || "",
+                      low_limit: product?.low_limit || "",
+                    });
+                    setShowScanner(false);
+                  }
+                }}
+              />
+    
+              <button
+                className="btn btn-red"
+                onClick={() => setShowScanner(false)}
+              >
+                Close Scanner
+              </button>
+            </div>
+          )}
 
           <div className="actions-center">
             <button className="btn btn-green" onClick={handleAddItem}>
