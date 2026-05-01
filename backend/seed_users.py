@@ -8,6 +8,7 @@ db = SessionLocal()
 users = [
     {"username": "admin", "password": "1234", "role": "admin"},
     {"username": "staff", "password": "1111", "role": "staff"},
+    {"username": "manager", "password": "2222", "role": "manager"},
 ]
 
 for user in users:

@@ -76,3 +76,12 @@ def delete_item(item_id: int, db: Session = Depends(get_db)):
 
     return {"message": "Item deleted"}
 
+@app.post("/sales")
+def create_sale(sale: schemas.SaleCreate, db: Session = Depends(get_db)):
+    return crud.create_sale(db, sale)
+
+
+@app.get("/sales")
+def get_sales(db: Session = Depends(get_db)):
+    return crud.get_sales(db)    
+

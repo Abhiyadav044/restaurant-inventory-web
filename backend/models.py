@@ -21,3 +21,13 @@ class InventoryItem(Base):
     unit = Column(String)
     low_limit = Column(Float)
     expiry = Column(String)
+
+class Sale(Base):
+    __tablename__ = "sales"
+
+    id = Column(Integer, primary_key=True, index=True)
+    item_name = Column(String, nullable=False)
+    quantity_sold = Column(Integer, nullable=False)
+    price = Column(Float, nullable=False)
+    total = Column(Float, nullable=False)
+    sale_date = Column(String, nullable=False)    

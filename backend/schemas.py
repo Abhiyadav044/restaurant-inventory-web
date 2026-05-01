@@ -30,4 +30,18 @@ class InventoryItemResponse(BaseModel):
     expiry: str
 
     class Config:
-        from_attributes = True   
+        from_attributes = True 
+
+class SaleCreate(BaseModel):
+    item_name: str
+    quantity_sold: int
+    price: float
+    total: float
+    sale_date: str
+
+
+class SaleResponse(SaleCreate):
+    id: int
+
+    class Config:
+        from_attributes = True      

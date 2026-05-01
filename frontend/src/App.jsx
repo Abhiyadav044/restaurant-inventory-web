@@ -15,7 +15,7 @@ import {
   Legend,
 } from "recharts";
 
-const API_BASE = "https://restaurant-inventory-web.onrender.com";
+const API_BASE = "http://127.0.0.1:8000";
 
 const barcodeProducts = {
   "1234567890": {
@@ -36,7 +36,9 @@ function App() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [user, setUser] = useState(null);
+
   const [items, setItems] = useState([]);
+  const [sales, setSales] = useState([]);
   const [editId, setEditId] = useState(null);
 
   const [search, setSearch] = useState("");
@@ -45,15 +47,22 @@ function App() {
   const [showScanner, setShowScanner] = useState(false);
 
   const [form, setForm] = useState({
+    barcode: "",
     item_name: "",
     category: "",
     quantity: "",
     unit: "",
     low_limit: "",
     expiry: "",
-    barcode: "",
   });
 
+  const [saleForm, setSaleForm] = useState({
+    item_name: "",
+    quantity_sold: "",
+    price: "",
+  });
+
+  const barcodeRef = useRef(null);
   const itemRef = useRef(null);
   const categoryRef = useRef(null);
   const quantityRef = useRef(null);
@@ -61,12 +70,27 @@ function App() {
   const lowLimitRef = useRef(null);
   const expiryRef = useRef(null);
 
-  const chartColors = ["#60a5fa", "#34d399", "#fbbf24", "#f87171", "#a78bfa", "#22d3ee"];
+  const saleItemRef = useRef(null);
+  const saleQtyRef = useRef(null);
+  const salePriceRef = useRef(null);
+
+  const isAdmin = user?.role === "admin";
+  const isStaff = user?.role === "staff";
+  const isManager = user?.role === "manager";
+
+  const chartColors = [
+    "#60a5fa",
+    "#34d399",
+    "#fbbf24",
+    "#f87171",
+    "#a78bfa",
+    "#22d3ee",
+  ];
 
   const handleEnter = (e, nextRef) => {
     if (e.key === "Enter") {
       e.preventDefault();
-      if (nextRef?.current) nextRef.current.focus();
+      nextRef?.current?.focus();
     }
   };
 
@@ -74,9 +98,7 @@ function App() {
     try {
       const res = await fetch(`${API_BASE}/login`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username, password }),
       });
 
@@ -96,14 +118,40 @@ function App() {
     try {
       const res = await fetch(`${API_BASE}/items`);
       const data = await res.json();
+
       setItems(data);
+
+      const lowStockItems = data.filter(
+        (item) => Number(item.quantity) <= Number(item.low_limit)
+      );
+
+      if (
+        lowStockItems.length > 0 &&
+        !sessionStorage.getItem("lowStockShown")
+      ) {
+        alert(
+          `Low stock alert: ${lowStockItems.length} item(s) need attention`
+        );
+        sessionStorage.setItem("lowStockShown", "yes");
+      }
     } catch (error) {
-      console.error(error);
+      console.error("Items fetch error:", error);
+    }
+  };
+
+  const fetchSales = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/sales`);
+      const data = await res.json();
+      setSales(data);
+    } catch (error) {
+      console.error("Sales fetch error:", error);
     }
   };
 
   const resetForm = () => {
     setForm({
+      barcode: "",
       item_name: "",
       category: "",
       quantity: "",
@@ -111,11 +159,24 @@ function App() {
       low_limit: "",
       expiry: "",
     });
+
     setEditId(null);
-    setTimeout(() => itemRef.current?.focus(), 100);
+    setTimeout(() => barcodeRef.current?.focus(), 100);
   };
 
   const handleAddItem = async () => {
+    if (
+      !form.item_name ||
+      !form.category ||
+      !form.quantity ||
+      !form.unit ||
+      !form.low_limit ||
+      !form.expiry
+    ) {
+      alert("Please fill all product fields");
+      return;
+    }
+
     try {
       const url = editId
         ? `${API_BASE}/items/${editId}`
@@ -125,9 +186,7 @@ function App() {
 
       const res = await fetch(url, {
         method,
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           item_name: form.item_name,
           category: form.category,
@@ -141,7 +200,7 @@ function App() {
       const data = await res.json();
 
       if (res.ok) {
-        alert(editId ? "Item updated" : "Item added");
+        alert(editId ? "✅ Item updated successfully" : "✅ Item added successfully");
         resetForm();
         fetchItems();
       } else {
@@ -153,7 +212,10 @@ function App() {
   };
 
   const deleteItem = async (id) => {
-    const confirmDelete = window.confirm("Are you sure you want to delete this item?");
+    const confirmDelete = window.confirm(
+      "Are you sure you want to delete this item?"
+    );
+
     if (!confirmDelete) return;
 
     try {
@@ -166,14 +228,16 @@ function App() {
         return;
       }
 
+      alert("✅ Item deleted");
       fetchItems();
-    } catch (error) {
+    } catch {
       alert("Server error");
     }
   };
 
   const handleEdit = (item) => {
     setForm({
+      barcode: item.barcode || "",
       item_name: item.item_name,
       category: item.category,
       quantity: item.quantity,
@@ -181,8 +245,64 @@ function App() {
       low_limit: item.low_limit,
       expiry: item.expiry,
     });
+
     setEditId(item.id);
     setTimeout(() => itemRef.current?.focus(), 100);
+  };
+
+  const handleAddSale = async () => {
+    if (!saleForm.item_name || !saleForm.quantity_sold || !saleForm.price) {
+      alert("Please fill all sales fields");
+      return;
+    }
+
+    const total =
+      Number(saleForm.quantity_sold) * Number(saleForm.price);
+
+    try {
+      const saleRes = await fetch(`${API_BASE}/sales`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          item_name: saleForm.item_name,
+          quantity_sold: Number(saleForm.quantity_sold),
+          price: Number(saleForm.price),
+          total,
+          sale_date: new Date().toISOString().split("T")[0],
+        }),
+      });
+
+      if (!saleRes.ok) {
+        alert("Sale failed");
+        return;
+      }
+
+      try {
+        await fetch(`${API_BASE}/reduce-stock`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            item_name: saleForm.item_name,
+            quantity: Number(saleForm.quantity_sold),
+          }),
+        });
+      } catch {
+        console.log("Reduce stock endpoint not ready yet");
+      }
+
+      setSaleForm({
+        item_name: "",
+        quantity_sold: "",
+        price: "",
+      });
+
+      alert("✅ Sale added successfully");
+      fetchSales();
+      fetchItems();
+      setTimeout(() => saleItemRef.current?.focus(), 100);
+    } catch {
+      alert("Server error");
+    }
   };
 
   const getStockStatus = (item) => {
@@ -191,12 +311,76 @@ function App() {
     return "In Stock";
   };
 
+  const getStockStatusClass = (item) => {
+    if (Number(item.quantity) === 0) return "status-out";
+    if (Number(item.quantity) <= Number(item.low_limit)) return "status-low";
+    return "status-in";
+  };
+
+  const parseDate = (dateStr) => {
+    if (!dateStr) return null;
+
+    const parts = dateStr.split("-");
+    if (parts.length !== 3) return null;
+
+    const [day, month, year] = parts;
+    return new Date(`${year}-${month}-${day}T00:00:00`);
+  };
+
+  const getExpiryInfo = (item) => {
+    const expiryDate = parseDate(item.expiry);
+
+    if (!expiryDate) {
+      return {
+        label: "Invalid Date",
+        className: "status-low",
+        daysLeft: null,
+      };
+    }
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const diffMs = expiryDate - today;
+    const daysLeft = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+
+    if (daysLeft < 0) {
+      return {
+        label: "Expired",
+        className: "status-out",
+        daysLeft,
+      };
+    }
+
+    if (daysLeft <= 3) {
+      return {
+        label: `Expiring in ${daysLeft} day${daysLeft !== 1 ? "s" : ""}`,
+        className: "status-low",
+        daysLeft,
+      };
+    }
+
+    return {
+      label: "Fresh",
+      className: "status-in",
+      daysLeft,
+    };
+  };
+
   const printReport = () => {
     window.print();
   };
 
   const exportCSV = () => {
-    const headers = ["ID", "Name", "Category", "Quantity", "Unit", "Low Limit", "Expiry"];
+    const headers = [
+      "ID",
+      "Name",
+      "Category",
+      "Quantity",
+      "Unit",
+      "Low Limit",
+      "Expiry",
+    ];
 
     const rows = items.map((item) => [
       item.id,
@@ -223,55 +407,18 @@ function App() {
     window.URL.revokeObjectURL(url);
   };
 
-  const getStockStatusClass = (item) => {
-    if (Number(item.quantity) === 0) return "status-out";
-    if (Number(item.quantity) <= Number(item.low_limit)) return "status-low";
-    return "status-in";
-  };
-
-  const parseDate = (dateStr) => {
-    const parts = dateStr.split("-");
-    if (parts.length !== 3) return null;
-    const [day, month, year] = parts;
-    return new Date(`${year}-${month}-${day}T00:00:00`);
-  };
-
-  const getExpiryInfo = (item) => {
-    const expiryDate = parseDate(item.expiry);
-    if (!expiryDate) {
-      return { label: "Invalid Date", className: "status-low", daysLeft: null };
-    }
-
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    const diffMs = expiryDate - today;
-    const daysLeft = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
-
-    if (daysLeft < 0) {
-      return { label: "Expired", className: "status-out", daysLeft };
-    }
-
-    if (daysLeft <= 3) {
-      return {
-        label: `Expiring in ${daysLeft} day${daysLeft !== 1 ? "s" : ""}`,
-        className: "status-low",
-        daysLeft,
-      };
-    }
-
-    return { label: "Fresh", className: "status-in", daysLeft };
-  };
-
   useEffect(() => {
     if (user) {
       fetchItems();
-      setTimeout(() => itemRef.current?.focus(), 100);
+      fetchSales();
+      setTimeout(() => barcodeRef.current?.focus(), 100);
     }
   }, [user]);
 
   const filteredItems = items.filter((item) => {
-    const matchSearch = item.item_name.toLowerCase().includes(search.toLowerCase());
+    const matchSearch = item.item_name
+      .toLowerCase()
+      .includes(search.toLowerCase());
 
     const matchCategory = categoryFilter
       ? item.category.toLowerCase().includes(categoryFilter.toLowerCase())
@@ -291,18 +438,31 @@ function App() {
   });
 
   const totalItems = items.length;
+
   const lowStock = items.filter(
-    (i) => Number(i.quantity) <= Number(i.low_limit) && Number(i.quantity) > 0
+    (i) =>
+      Number(i.quantity) <= Number(i.low_limit) &&
+      Number(i.quantity) > 0
   ).length;
-  const outOfStock = items.filter((i) => Number(i.quantity) === 0).length;
+
+  const outOfStock = items.filter(
+    (i) => Number(i.quantity) === 0
+  ).length;
+
   const expiringSoon = items.filter((i) => {
     const info = getExpiryInfo(i);
     return info.daysLeft !== null && info.daysLeft >= 0 && info.daysLeft <= 3;
   }).length;
+
   const expiredItems = items.filter((i) => {
     const info = getExpiryInfo(i);
     return info.daysLeft !== null && info.daysLeft < 0;
   }).length;
+
+  const expiringItemsList = items.filter((item) => {
+    const info = getExpiryInfo(item);
+    return info.daysLeft !== null && info.daysLeft >= 0 && info.daysLeft <= 3;
+  });
 
   const stockChartData = useMemo(() => {
     return items.map((item) => ({
@@ -314,9 +474,11 @@ function App() {
 
   const categoryChartData = useMemo(() => {
     const grouped = {};
+
     items.forEach((item) => {
       const category = item.category || "Other";
-      grouped[category] = (grouped[category] || 0) + Number(item.quantity);
+      grouped[category] =
+        (grouped[category] || 0) + Number(item.quantity);
     });
 
     return Object.entries(grouped).map(([name, value]) => ({
@@ -325,22 +487,21 @@ function App() {
     }));
   }, [items]);
 
-  const expiringItemsList = items.filter((item) => {
-    const info = getExpiryInfo(item);
-    return info.daysLeft !== null && info.daysLeft >= 0 && info.daysLeft <= 3;
-  });
-
   if (user) {
     return (
       <div className="page">
-        <h1 className="dashboard-title">Restaurant Inventory Dashboard</h1>
+        <h1 className="dashboard-title">
+          Restaurant Inventory Dashboard
+        </h1>
+
         <p className="dashboard-subtitle">
           Welcome, <b>{user.username}</b> ({user.role})
         </p>
 
         {expiringItemsList.length > 0 && (
           <div className="alert-box">
-            ⚠️ {expiringItemsList.length} item{expiringItemsList.length !== 1 ? "s" : ""} expiring soon
+            ⚠️ {expiringItemsList.length} item
+            {expiringItemsList.length !== 1 ? "s" : ""} expiring soon
           </div>
         )}
 
@@ -349,122 +510,203 @@ function App() {
             <div className="stat-label">Total Items</div>
             <div className="stat-value stat-total">{totalItems}</div>
           </div>
+
           <div className="glass-card stat-card">
             <div className="stat-label">Low Stock</div>
             <div className="stat-value stat-low">{lowStock}</div>
           </div>
+
           <div className="glass-card stat-card">
             <div className="stat-label">Out of Stock</div>
             <div className="stat-value stat-out">{outOfStock}</div>
           </div>
+
           <div className="glass-card stat-card">
             <div className="stat-label">Expiring Soon</div>
             <div className="stat-value stat-low">{expiringSoon}</div>
           </div>
+
           <div className="glass-card stat-card">
             <div className="stat-label">Expired</div>
             <div className="stat-value stat-out">{expiredItems}</div>
           </div>
         </div>
 
-        <div className="glass-card section-card">
-          <h2 className="section-title">
-            {editId ? "Edit Product" : "Add Product"}
-          </h2>
+        {!isManager && (
+          <div className="glass-card section-card">
+            <h2 className="section-title">
+              {editId ? "Edit Product" : "Add Product"}
+            </h2>
 
-          <div className="form-grid">
-            <input
-              className="input"
-              placeholder="Barcode / SKU"
-              value={form.barcode || ""}
-              onChange={(e) =>
-                setForm({ ...form, barcode: e.target.value })
-              }
-            />
-            <button
-              className="btn btn-blue"
-              onClick={() => setShowScanner(true)}
-            >
-              Scan Barcode
-            </button>
+            <div className="form-grid">
+              <input
+                ref={barcodeRef}
+                className="input"
+                placeholder="Barcode / SKU"
+                value={form.barcode}
+                onChange={(e) =>
+                  setForm({ ...form, barcode: e.target.value })
+                }
+                onKeyDown={(e) => handleEnter(e, itemRef)}
+              />
 
-            <input ref={itemRef} className="input" placeholder="Item Name" value={form.item_name} onChange={(e) => setForm({ ...form, item_name: e.target.value })} onKeyDown={(e) => handleEnter(e, categoryRef)} />
-            <input ref={categoryRef} className="input" placeholder="Category" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} onKeyDown={(e) => handleEnter(e, quantityRef)} />
-            <input ref={quantityRef} className="input" placeholder="Quantity" value={form.quantity} onChange={(e) => setForm({ ...form, quantity: e.target.value })} onKeyDown={(e) => handleEnter(e, unitRef)} />
-            <input ref={unitRef} className="input" placeholder="Unit" value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })} onKeyDown={(e) => handleEnter(e, lowLimitRef)} />
-            <input ref={lowLimitRef} className="input" placeholder="Low Limit" value={form.low_limit} onChange={(e) => setForm({ ...form, low_limit: e.target.value })} onKeyDown={(e) => handleEnter(e, expiryRef)} />
-            <input ref={expiryRef} className="input" placeholder="Expiry (DD-MM-YYYY)" value={form.expiry} onChange={(e) => setForm({ ...form, expiry: e.target.value })} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleAddItem(); } }} />
-          </div>
-          
-          {showScanner && (
-            <div className="glass-card section-card">
-              <h2 className="section-title">Scan Barcode</h2>
-              <BarcodeScannerComponent
-                width={400}
-                height={300}
-                constraints={{facingmode:"environment"}}
-                onUpdate={(err, result) => {
-                  if (result) {
-                    const scannedCode = result.text;
-                    const product = barcodeProducts[scannedCode];
+              <button
+                className="btn btn-blue"
+                onClick={() => setShowScanner(true)}
+              >
+                Scan Barcode
+              </button>
 
-                    setForm({
-                      ...form,
-                      barcode: scannedCode,
-                      item_name: product?.item_name || "",
-                      category: product?.category || "",
-                      unit: product?.unit || "",
-                      low_limit: product?.low_limit || "",
-                    });
-                    setShowScanner(false);
+              <input
+                ref={itemRef}
+                className="input"
+                placeholder="Item Name"
+                value={form.item_name}
+                onChange={(e) =>
+                  setForm({ ...form, item_name: e.target.value })
+                }
+                onKeyDown={(e) => handleEnter(e, categoryRef)}
+              />
+
+              <input
+                ref={categoryRef}
+                className="input"
+                placeholder="Category"
+                value={form.category}
+                onChange={(e) =>
+                  setForm({ ...form, category: e.target.value })
+                }
+                onKeyDown={(e) => handleEnter(e, quantityRef)}
+              />
+
+              <input
+                ref={quantityRef}
+                className="input"
+                placeholder="Quantity"
+                value={form.quantity}
+                onChange={(e) =>
+                  setForm({ ...form, quantity: e.target.value })
+                }
+                onKeyDown={(e) => handleEnter(e, unitRef)}
+              />
+
+              <input
+                ref={unitRef}
+                className="input"
+                placeholder="Unit"
+                value={form.unit}
+                onChange={(e) =>
+                  setForm({ ...form, unit: e.target.value })
+                }
+                onKeyDown={(e) => handleEnter(e, lowLimitRef)}
+              />
+
+              <input
+                ref={lowLimitRef}
+                className="input"
+                placeholder="Low Limit"
+                value={form.low_limit}
+                onChange={(e) =>
+                  setForm({ ...form, low_limit: e.target.value })
+                }
+                onKeyDown={(e) => handleEnter(e, expiryRef)}
+              />
+
+              <input
+                ref={expiryRef}
+                className="input"
+                placeholder="Expiry (DD-MM-YYYY)"
+                value={form.expiry}
+                onChange={(e) =>
+                  setForm({ ...form, expiry: e.target.value })
+                }
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    handleAddItem();
                   }
                 }}
               />
-    
-              <button
-                className="btn btn-red"
-                onClick={() => setShowScanner(false)}
-              >
-                Close Scanner
-              </button>
             </div>
-          )}
 
-          <div className="actions-center">
-            <button className="btn btn-green" onClick={handleAddItem}>
-              {editId ? "Update Item" : "Add Item"}
-            </button>
-            {editId && (
-              <button className="btn btn-gray" onClick={resetForm}>
-                Cancel
-              </button>
+            {showScanner && (
+              <div className="glass-card section-card">
+                <h2 className="section-title">Scan Barcode</h2>
+
+                <BarcodeScannerComponent
+                  width={400}
+                  height={300}
+                  constraints={{ facingMode: "environment" }}
+                  onUpdate={(err, result) => {
+                    if (result) {
+                      const scannedCode = result.text;
+                      const product = barcodeProducts[scannedCode];
+
+                      setForm({
+                        ...form,
+                        barcode: scannedCode,
+                        item_name: product?.item_name || "",
+                        category: product?.category || "",
+                        unit: product?.unit || "",
+                        low_limit: product?.low_limit || "",
+                      });
+
+                      setShowScanner(false);
+                    }
+                  }}
+                />
+
+                <button
+                  className="btn btn-red"
+                  onClick={() => setShowScanner(false)}
+                >
+                  Close Scanner
+                </button>
+              </div>
             )}
+
+            <div className="actions-center">
+              <button
+                className="btn btn-green"
+                onClick={handleAddItem}
+              >
+                {editId ? "Update Item" : "Add Item"}
+              </button>
+
+              {editId && (
+                <button className="btn btn-gray" onClick={resetForm}>
+                  Cancel
+                </button>
+              )}
+            </div>
           </div>
-        </div>
+        )}
 
         <div className="charts-grid">
           <div className="glass-card section-card">
             <h2 className="section-title">Stock by Item</h2>
+
             <div className="chart-box">
               <ResponsiveContainer width="100%" height={300}>
                 <BarChart data={stockChartData}>
-                  <defs>
-                    <linearGradient id="colorQty" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#4facfe" stopOpacity={0.95} />
-                      <stop offset="95%" stopColor="#00f2fe" stopOpacity={0.35} />
-                    </linearGradient>
-                    <linearGradient id="colorLow" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#facc15" stopOpacity={0.95} />
-                      <stop offset="95%" stopColor="#f59e0b" stopOpacity={0.35} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.12)" />
+                  <CartesianGrid
+                    strokeDasharray="3 3"
+                    stroke="rgba(255,255,255,0.12)"
+                  />
                   <XAxis dataKey="name" stroke="#e5e7eb" />
                   <YAxis stroke="#e5e7eb" />
                   <Tooltip />
                   <Legend />
-                  <Bar dataKey="quantity" fill="url(#colorQty)" radius={[10, 10, 0, 0]} />
-                  <Bar dataKey="low_limit" fill="url(#colorLow)" radius={[10, 10, 0, 0]} />
+                  <Bar
+                    dataKey="quantity"
+                    fill="#60a5fa"
+                    radius={[10, 10, 0, 0]}
+                  />
+                  <Bar
+                    dataKey="low_limit"
+                    fill="#fbbf24"
+                    radius={[10, 10, 0, 0]}
+                  />
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -472,12 +714,22 @@ function App() {
 
           <div className="glass-card section-card">
             <h2 className="section-title">Category Distribution</h2>
+
             <div className="chart-box">
               <ResponsiveContainer width="100%" height={300}>
                 <PieChart>
-                  <Pie data={categoryChartData} dataKey="value" nameKey="name" outerRadius={100} label>
+                  <Pie
+                    data={categoryChartData}
+                    dataKey="value"
+                    nameKey="name"
+                    outerRadius={100}
+                    label
+                  >
                     {categoryChartData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={chartColors[index % chartColors.length]} />
+                      <Cell
+                        key={`cell-${index}`}
+                        fill={chartColors[index % chartColors.length]}
+                      />
                     ))}
                   </Pie>
                   <Tooltip />
@@ -489,12 +741,109 @@ function App() {
         </div>
 
         <div className="glass-card section-card">
+          <h2 className="section-title">Daily Sales Report</h2>
+
+          <div className="form-grid">
+            <input
+              ref={saleItemRef}
+              className="input"
+              placeholder="Item Name"
+              value={saleForm.item_name}
+              onChange={(e) =>
+                setSaleForm({ ...saleForm, item_name: e.target.value })
+              }
+              onKeyDown={(e) => handleEnter(e, saleQtyRef)}
+            />
+
+            <input
+              ref={saleQtyRef}
+              className="input"
+              placeholder="Quantity Sold"
+              value={saleForm.quantity_sold}
+              onChange={(e) =>
+                setSaleForm({
+                  ...saleForm,
+                  quantity_sold: e.target.value,
+                })
+              }
+              onKeyDown={(e) => handleEnter(e, salePriceRef)}
+            />
+
+            <input
+              ref={salePriceRef}
+              className="input"
+              placeholder="Price"
+              value={saleForm.price}
+              onChange={(e) =>
+                setSaleForm({ ...saleForm, price: e.target.value })
+              }
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  handleAddSale();
+                }
+              }}
+            />
+          </div>
+
+          <div className="actions-center">
+            <button className="btn btn-green" onClick={handleAddSale}>
+              Add Sale
+            </button>
+          </div>
+        </div>
+
+        <div className="glass-card section-card">
+          <h2 className="section-title">Sales History</h2>
+
+          <table className="table">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Item</th>
+                <th>Qty</th>
+                <th>Price</th>
+                <th>Total</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              {sales.map((sale, index) => (
+                <tr key={index}>
+                  <td>{sale.sale_date}</td>
+                  <td>{sale.item_name}</td>
+                  <td>{sale.quantity_sold}</td>
+                  <td>£{sale.price}</td>
+                  <td>£{sale.total}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="glass-card section-card">
           <h2 className="section-title">Inventory Items</h2>
 
           <div className="filter-bar">
-            <input className="input" placeholder="Search item..." value={search} onChange={(e) => setSearch(e.target.value)} />
-            <input className="input" placeholder="Filter by category" value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)} />
-            <select className="input" value={stockFilter} onChange={(e) => setStockFilter(e.target.value)}>
+            <input
+              className="input"
+              placeholder="Search item..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+
+            <input
+              className="input"
+              placeholder="Filter by category"
+              value={categoryFilter}
+              onChange={(e) => setCategoryFilter(e.target.value)}
+            />
+
+            <select
+              className="input"
+              value={stockFilter}
+              onChange={(e) => setStockFilter(e.target.value)}
+            >
               <option value="all">All</option>
               <option value="low">Low Stock</option>
               <option value="out">Out of Stock</option>
@@ -517,6 +866,7 @@ function App() {
                   <th>Action</th>
                 </tr>
               </thead>
+
               <tbody>
                 {filteredItems.map((item) => {
                   const expiryInfo = getExpiryInfo(item);
@@ -525,9 +875,11 @@ function App() {
                     <tr
                       key={item.id}
                       className={
-                        expiryInfo.daysLeft !== null && expiryInfo.daysLeft < 0
+                        expiryInfo.daysLeft !== null &&
+                        expiryInfo.daysLeft < 0
                           ? "expired-row"
-                          : expiryInfo.daysLeft !== null && expiryInfo.daysLeft <= 3
+                          : expiryInfo.daysLeft !== null &&
+                            expiryInfo.daysLeft <= 3
                           ? "warning-row"
                           : ""
                       }
@@ -539,8 +891,11 @@ function App() {
                       <td>{item.unit}</td>
                       <td>{item.low_limit}</td>
                       <td>{item.expiry}</td>
+
                       <td>
-                        <span className={`badge ${getStockStatusClass(item)}`}>
+                        <span
+                          className={`badge ${getStockStatusClass(item)}`}
+                        >
                           {getStockStatus(item)}
                         </span>
                       </td>
@@ -549,10 +904,26 @@ function App() {
                         <span className={`badge ${expiryInfo.className}`}>
                           {expiryInfo.label}
                         </span>
-                      </td>  
+                      </td>
+
                       <td>
-                        <button className="btn btn-blue" onClick={() => handleEdit(item)}>Edit</button>
-                        <button className="btn btn-red" onClick={() => handleDeleteItem(item.id)}>Delete</button>
+                        {!isManager && (
+                          <button
+                            className="btn btn-blue"
+                            onClick={() => handleEdit(item)}
+                          >
+                            Edit
+                          </button>
+                        )}
+
+                        {isAdmin && (
+                          <button
+                            className="btn btn-red"
+                            onClick={() => deleteItem(item.id)}
+                          >
+                            Delete
+                          </button>
+                        )}
                       </td>
                     </tr>
                   );
@@ -560,7 +931,10 @@ function App() {
 
                 {filteredItems.length === 0 && (
                   <tr>
-                    <td colSpan="10" style={{ textAlign: "center", padding: "18px" }}>
+                    <td
+                      colSpan="10"
+                      style={{ textAlign: "center", padding: "18px" }}
+                    >
                       No items found
                     </td>
                   </tr>
@@ -572,7 +946,9 @@ function App() {
 
         <div className="print-only">
           <h1>Restaurant Inventory Report</h1>
-          <p>Generated by: {user.username} ({user.role})</p>
+          <p>
+            Generated by: {user.username} ({user.role})
+          </p>
 
           <table>
             <thead>
@@ -586,6 +962,7 @@ function App() {
                 <th>Expiry</th>
               </tr>
             </thead>
+
             <tbody>
               {items.map((item) => (
                 <tr key={item.id}>
@@ -603,7 +980,6 @@ function App() {
         </div>
 
         <div className="logout-wrap">
-
           <button className="btn btn-blue" onClick={exportCSV}>
             Export CSV
           </button>
@@ -612,10 +988,12 @@ function App() {
             Print Report
           </button>
 
-          <button className="btn btn-gray" onClick={() => setUser(null)}>
+          <button
+            className="btn btn-gray"
+            onClick={() => setUser(null)}
+          >
             Logout
           </button>
-
         </div>
       </div>
     );
@@ -625,7 +1003,10 @@ function App() {
     <div className="centered">
       <div className="glass-card login-box">
         <h2 className="title">Inventory Login</h2>
-        <p className="subtitle">Modern restaurant stock management</p>
+
+        <p className="subtitle">
+          Modern restaurant stock management
+        </p>
 
         <input
           className="input"
@@ -633,6 +1014,12 @@ function App() {
           placeholder="Username"
           value={username}
           onChange={(e) => setUsername(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              document.querySelector('input[type="password"]')?.focus();
+            }
+          }}
         />
 
         <div style={{ height: "12px" }} />

@@ -51,3 +51,25 @@ def delete_item(db: Session, item_id: int):
         db.commit()
 
     return item
+
+def create_sale(db: Session, sale):
+    db_sale = models.Sale(**sale.dict())
+    db.add(db_sale)
+
+    inventory_item = db.query(models.InventoryItem).filter(
+        models.InventoryItem.item_name == sale.item_name
+    ).first()
+
+    if inventory_item:
+        inventory_item.quantity = max(
+            0,
+            inventory_item.quantity - sale.quantity_sold
+        )
+
+    db.commit()
+    db.refresh(db_sale)
+    return db_sale
+
+
+def get_sales(db: Session):
+    return db.query(models.Sale).all()    
