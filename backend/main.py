@@ -1,3 +1,4 @@
+from email import header
 from typing import List
 
 from fastapi import FastAPI, Depends, HTTPException
@@ -7,10 +8,19 @@ from sqlalchemy.orm import Session
 import schemas
 import crud
 from database import SessionLocal, engine, Base
+from jose import jwt
+from datetime import datetime, timedelta
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi import Security, Header
+
+SECRET_KEY = "your-secret-key"
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
+security = HTTPBearer()
 
 app.add_middleware(
     CORSMiddleware,
@@ -28,28 +38,51 @@ def get_db():
     finally:
         db.close()
 
+def create_access_token(data: dict):
+    to_encode = data.copy()
+    expire = datetime.utcnow() + timedelta(minutes=60)
+    to_encode.update({"exp": expire})
+    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)        
+def verify_token(authorization: str = Header(...)):
+    try:
+        token = authorization.split(" ")[1]
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        return payload
+    except:
+        raise HTTPException(status_code=401, detail="Invalid or missing token")
+
 
 @app.get("/")
 def root():
     return {"message": "API running"}
 
 
-@app.post("/login", response_model=schemas.UserResponse)
+@app.post("/login")
 def login(request: schemas.UserLogin, db: Session = Depends(get_db)):
     user = crud.authenticate_user(db, request.username, request.password)
 
     if not user:
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
-    return {
-        "username": user.username,
+    token = create_access_token({
+        "sub": user.username,
         "role": user.role
+    })
+
+    return {
+        "access_token": token,
+        "token_type": "bearer"
     }
 
 
-@app.get("/items", response_model=List[schemas.InventoryItemResponse])
-def get_items(db: Session = Depends(get_db)):
+@app.get("/items")
+def get_items(
+    credentials: HTTPAuthorizationCredentials = Security(security),
+    db: Session = Depends(get_db)
+):
+    token = credentials.credentials
     return crud.get_items(db)
+
 
 
 @app.post("/items", response_model=schemas.InventoryItemResponse)
