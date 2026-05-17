@@ -15,6 +15,8 @@ import {
   Legend,
 } from "recharts";
 
+
+
 const API_BASE = "http://127.0.0.1:8000";
 
 const barcodeProducts = {
@@ -36,7 +38,6 @@ function App() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [user, setUser] = useState(null);
-
   const [items, setItems] = useState([]);
   const [sales, setSales] = useState([]);
   const [editId, setEditId] = useState(null);
@@ -46,15 +47,37 @@ function App() {
   const [stockFilter, setStockFilter] = useState("all");
   const [showScanner, setShowScanner] = useState(false);
 
+  const categoryData = Object.values(
+    items.reduce((acc, item) => {
+      const category = item.category || "Other";
+
+      if (!acc[category]) {
+        acc[category] = {
+          name: category,
+         stock: 0,
+        };
+      }
+
+      acc[category].stock += Number(item.quantity || 0);
+
+      return acc;
+    }, {})
+  );
+
+  const stockChartData = items.map((item) => ({
+    name: item.item_name || "Unknown",
+    quantity: Number(item.quantity || 0),
+    low_limit: Number(item.low_limit || 0),}));
+
   const [form, setForm] = useState({
-    barcode: "",
     item_name: "",
     category: "",
     quantity: "",
     unit: "",
     low_limit: "",
     expiry: "",
-  });
+    barcode: "",
+  });  
 
   const [saleForm, setSaleForm] = useState({
     item_name: "",
@@ -62,7 +85,7 @@ function App() {
     price: "",
   });
 
-  const barcodeRef = useRef(null);
+
   const itemRef = useRef(null);
   const categoryRef = useRef(null);
   const quantityRef = useRef(null);
@@ -70,12 +93,7 @@ function App() {
   const lowLimitRef = useRef(null);
   const expiryRef = useRef(null);
 
-  const saleItemRef = useRef(null);
-  const saleQtyRef = useRef(null);
-  const salePriceRef = useRef(null);
-
   const isAdmin = user?.role === "admin";
-  const isStaff = user?.role === "staff";
   const isManager = user?.role === "manager";
 
   const chartColors = [
@@ -87,51 +105,65 @@ function App() {
     "#22d3ee",
   ];
 
-  const handleEnter = (e, nextRef) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      nextRef?.current?.focus();
-    }
-  };
-
   const handleLogin = async () => {
     try {
       const res = await fetch(`${API_BASE}/login`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, password }),
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          username: username.trim(),
+          password: password.trim(),
+        }),
       });
 
       const data = await res.json();
 
-      if (res.ok) {
-        setUser(data);
-      } else {
+      console.log(data);
+
+      if (!res.ok) {
         alert(data.detail || "Login failed");
+        return;
       }
-    } catch {
-      alert("Server error");
+
+      localStorage.setItem("token", data.access_token);
+
+      setUser({
+        username: username.trim(),
+        role: "admin",
+      });
+
+    } catch (error) {
+      console.error("Login error:", error);
+      alert("Backend not connected");
     }
+  };
+
+  const logout = () => {
+    localStorage.removeItem("token");
+    setUser(null);
   };
 
   const fetchItems = async () => {
     try {
-      const res = await fetch(`${API_BASE}/items`);
-      const data = await res.json();
+      const token = localStorage.getItem("token");
 
+      const res = await fetch(`${API_BASE}/items`, {
+        headers: {
+         Authorization: `Bearer ${token}`,
+        },
+      });
+
+      const data = await res.json();
       setItems(data);
 
       const lowStockItems = data.filter(
         (item) => Number(item.quantity) <= Number(item.low_limit)
       );
 
-      if (
-        lowStockItems.length > 0 &&
-        !sessionStorage.getItem("lowStockShown")
-      ) {
-        alert(
-          `Low stock alert: ${lowStockItems.length} item(s) need attention`
-        );
+      if (lowStockItems.length > 0 && !sessionStorage.getItem("lowStockShown")) {
+        alert(`Low stock alert: ${lowStockItems.length} item(s) need attention`);
         sessionStorage.setItem("lowStockShown", "yes");
       }
     } catch (error) {
@@ -149,39 +181,97 @@ function App() {
     }
   };
 
+  const handleAddSale = async () => {
+    try {
+      const total = Number(saleForm.quantity_sold) * Number(saleForm.price);
+
+      const res = await fetch(`${API_BASE}/sales`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          item_name: saleForm.item_name,
+          quantity_sold: Number(saleForm.quantity_sold),
+          price: Number(saleForm.price),
+          total,
+          sale_date: new Date().toISOString().split("T")[0],
+        }),
+      });
+
+      if (!res.ok) {
+        alert("Sale add failed");
+        return;
+      }
+
+      setSaleForm({
+        item_name: "",
+        quantity_sold: "",
+        price: "",
+      });
+
+      fetchSales();
+      fetchItems();
+    } catch (error) {
+      console.error("Sale error:", error);
+      alert("Server error");
+    }
+  };
+
   const resetForm = () => {
     setForm({
-      barcode: "",
       item_name: "",
       category: "",
       quantity: "",
       unit: "",
       low_limit: "",
       expiry: "",
+      barcode: "",
     });
-
     setEditId(null);
-    setTimeout(() => barcodeRef.current?.focus(), 100);
+    setTimeout(() => itemRef.current?.focus(), 100);
   };
 
   const handleAddItem = async () => {
-    if (
-      !form.item_name ||
-      !form.category ||
-      !form.quantity ||
-      !form.unit ||
-      !form.low_limit ||
-      !form.expiry
-    ) {
-      alert("Please fill all product fields");
-      return;
-    }
-
     try {
-      const url = editId
-        ? `${API_BASE}/items/${editId}`
-        : `${API_BASE}/items`;
 
+      const existingItem = items.find(
+        (item) =>
+          item.item_name.toLowerCase().trim() ===
+          form.item_name.toLowerCase().trim()
+      );
+
+      if (existingItem && !editId) {
+        const updatedItem = {
+          item_name: existingItem.item_name,
+          category: existingItem.category,
+          quantity:
+            Number(existingItem.quantity) +
+            Number(form.quantity),
+          unit: existingItem.unit,
+          low_limit: existingItem.low_limit,
+          expiry: existingItem.expiry,
+          barcode: existingItem.barcode,
+        };
+
+        const updateRes = await fetch(
+          `${API_BASE}/items/${existingItem.id}`,
+          {
+            method: "PUT",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify(updatedItem),
+          }
+        );
+
+        if (updateRes.ok) {
+          alert("Existing item quantity updated");
+          resetForm();
+          fetchItems();
+          return;
+        }
+      }
+
+      const url = editId ? `${API_BASE}/items/${editId}` : `${API_BASE}/items`;
       const method = editId ? "PUT" : "POST";
 
       const res = await fetch(url, {
@@ -194,28 +284,27 @@ function App() {
           unit: form.unit,
           low_limit: Number(form.low_limit),
           expiry: form.expiry,
+          barcode: form.barcode,
         }),
       });
 
       const data = await res.json();
 
       if (res.ok) {
-        alert(editId ? "✅ Item updated successfully" : "✅ Item added successfully");
+        alert(editId ? "Item updated" : "Item added");
         resetForm();
         fetchItems();
       } else {
         alert(data.detail || "Error");
       }
-    } catch {
+    } catch (error) {
+      console.error("Item error:", error);
       alert("Server error");
     }
   };
 
   const deleteItem = async (id) => {
-    const confirmDelete = window.confirm(
-      "Are you sure you want to delete this item?"
-    );
-
+    const confirmDelete = window.confirm("Are you sure you want to delete this item?");
     if (!confirmDelete) return;
 
     try {
@@ -228,81 +317,25 @@ function App() {
         return;
       }
 
-      alert("✅ Item deleted");
       fetchItems();
-    } catch {
+    } catch (error) {
+      console.error("Delete error:", error);
       alert("Server error");
     }
   };
 
   const handleEdit = (item) => {
     setForm({
-      barcode: item.barcode || "",
       item_name: item.item_name,
       category: item.category,
       quantity: item.quantity,
       unit: item.unit,
       low_limit: item.low_limit,
       expiry: item.expiry,
+      barcode: item.barcode || "",
     });
-
     setEditId(item.id);
     setTimeout(() => itemRef.current?.focus(), 100);
-  };
-
-  const handleAddSale = async () => {
-    if (!saleForm.item_name || !saleForm.quantity_sold || !saleForm.price) {
-      alert("Please fill all sales fields");
-      return;
-    }
-
-    const total =
-      Number(saleForm.quantity_sold) * Number(saleForm.price);
-
-    try {
-      const saleRes = await fetch(`${API_BASE}/sales`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          item_name: saleForm.item_name,
-          quantity_sold: Number(saleForm.quantity_sold),
-          price: Number(saleForm.price),
-          total,
-          sale_date: new Date().toISOString().split("T")[0],
-        }),
-      });
-
-      if (!saleRes.ok) {
-        alert("Sale failed");
-        return;
-      }
-
-      try {
-        await fetch(`${API_BASE}/reduce-stock`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            item_name: saleForm.item_name,
-            quantity: Number(saleForm.quantity_sold),
-          }),
-        });
-      } catch {
-        console.log("Reduce stock endpoint not ready yet");
-      }
-
-      setSaleForm({
-        item_name: "",
-        quantity_sold: "",
-        price: "",
-      });
-
-      alert("✅ Sale added successfully");
-      fetchSales();
-      fetchItems();
-      setTimeout(() => saleItemRef.current?.focus(), 100);
-    } catch {
-      alert("Server error");
-    }
   };
 
   const getStockStatus = (item) => {
@@ -319,23 +352,16 @@ function App() {
 
   const parseDate = (dateStr) => {
     if (!dateStr) return null;
-
     const parts = dateStr.split("-");
     if (parts.length !== 3) return null;
-
     const [day, month, year] = parts;
     return new Date(`${year}-${month}-${day}T00:00:00`);
   };
 
   const getExpiryInfo = (item) => {
     const expiryDate = parseDate(item.expiry);
-
     if (!expiryDate) {
-      return {
-        label: "Invalid Date",
-        className: "status-low",
-        daysLeft: null,
-      };
+      return { label: "Invalid Date", className: "status-low", daysLeft: null };
     }
 
     const today = new Date();
@@ -345,11 +371,7 @@ function App() {
     const daysLeft = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
 
     if (daysLeft < 0) {
-      return {
-        label: "Expired",
-        className: "status-out",
-        daysLeft,
-      };
+      return { label: "Expired", className: "status-out", daysLeft };
     }
 
     if (daysLeft <= 3) {
@@ -360,11 +382,7 @@ function App() {
       };
     }
 
-    return {
-      label: "Fresh",
-      className: "status-in",
-      daysLeft,
-    };
+    return { label: "Fresh", className: "status-in", daysLeft };
   };
 
   const printReport = () => {
@@ -372,15 +390,7 @@ function App() {
   };
 
   const exportCSV = () => {
-    const headers = [
-      "ID",
-      "Name",
-      "Category",
-      "Quantity",
-      "Unit",
-      "Low Limit",
-      "Expiry",
-    ];
+    const headers = ["ID", "Name", "Category", "Quantity", "Unit", "Low Limit", "Expiry"];
 
     const rows = items.map((item) => [
       item.id,
@@ -392,10 +402,7 @@ function App() {
       item.expiry,
     ]);
 
-    const csvContent = [headers, ...rows]
-      .map((row) => row.join(","))
-      .join("\n");
-
+    const csvContent = [headers, ...rows].map((row) => row.join(",")).join("\n");
     const blob = new Blob([csvContent], { type: "text/csv" });
     const url = window.URL.createObjectURL(blob);
 
@@ -411,17 +418,17 @@ function App() {
     if (user) {
       fetchItems();
       fetchSales();
-      setTimeout(() => barcodeRef.current?.focus(), 100);
+      setTimeout(() => itemRef.current?.focus(), 100);
     }
   }, [user]);
 
   const filteredItems = items.filter((item) => {
     const matchSearch = item.item_name
-      .toLowerCase()
+      ?.toLowerCase()
       .includes(search.toLowerCase());
 
     const matchCategory = categoryFilter
-      ? item.category.toLowerCase().includes(categoryFilter.toLowerCase())
+      ? item.category?.toLowerCase().includes(categoryFilter.toLowerCase())
       : true;
 
     let matchStock = true;
@@ -440,14 +447,10 @@ function App() {
   const totalItems = items.length;
 
   const lowStock = items.filter(
-    (i) =>
-      Number(i.quantity) <= Number(i.low_limit) &&
-      Number(i.quantity) > 0
+    (i) => Number(i.quantity) <= Number(i.low_limit) && Number(i.quantity) > 0
   ).length;
 
-  const outOfStock = items.filter(
-    (i) => Number(i.quantity) === 0
-  ).length;
+  const outOfStock = items.filter((i) => Number(i.quantity) === 0).length;
 
   const expiringSoon = items.filter((i) => {
     const info = getExpiryInfo(i);
@@ -459,26 +462,12 @@ function App() {
     return info.daysLeft !== null && info.daysLeft < 0;
   }).length;
 
-  const expiringItemsList = items.filter((item) => {
-    const info = getExpiryInfo(item);
-    return info.daysLeft !== null && info.daysLeft >= 0 && info.daysLeft <= 3;
-  });
-
-  const stockChartData = useMemo(() => {
-    return items.map((item) => ({
-      name: item.item_name,
-      quantity: Number(item.quantity),
-      low_limit: Number(item.low_limit),
-    }));
-  }, [items]);
 
   const categoryChartData = useMemo(() => {
     const grouped = {};
-
     items.forEach((item) => {
       const category = item.category || "Other";
-      grouped[category] =
-        (grouped[category] || 0) + Number(item.quantity);
+      grouped[category] = (grouped[category] || 0) + Number(item.quantity);
     });
 
     return Object.entries(grouped).map(([name, value]) => ({
@@ -487,12 +476,19 @@ function App() {
     }));
   }, [items]);
 
+  const expiringItemsList = items.filter((item) => {
+    const info = getExpiryInfo(item);
+    return info.daysLeft !== null && info.daysLeft >= 0 && info.daysLeft <= 3;
+  });
+
   if (user) {
     return (
       <div className="page">
-        <h1 className="dashboard-title">
-          Restaurant Inventory Dashboard
-        </h1>
+        <h1 className="dashboard-title">Restaurant Inventory Dashboard</h1>
+
+        <button className="logoutBtn" onClick={logout}>
+          Logout
+        </button>
 
         <p className="dashboard-subtitle">
           Welcome, <b>{user.username}</b> ({user.role})
@@ -534,26 +530,17 @@ function App() {
 
         {!isManager && (
           <div className="glass-card section-card">
-            <h2 className="section-title">
-              {editId ? "Edit Product" : "Add Product"}
-            </h2>
+            <h2 className="section-title">{editId ? "Edit Product" : "Add Product"}</h2>
 
             <div className="form-grid">
               <input
-                ref={barcodeRef}
                 className="input"
                 placeholder="Barcode / SKU"
                 value={form.barcode}
-                onChange={(e) =>
-                  setForm({ ...form, barcode: e.target.value })
-                }
-                onKeyDown={(e) => handleEnter(e, itemRef)}
+                onChange={(e) => setForm({ ...form, barcode: e.target.value })}
               />
 
-              <button
-                className="btn btn-blue"
-                onClick={() => setShowScanner(true)}
-              >
+              <button className="btn btn-blue" onClick={() => setShowScanner(true)}>
                 Scan Barcode
               </button>
 
@@ -562,10 +549,10 @@ function App() {
                 className="input"
                 placeholder="Item Name"
                 value={form.item_name}
-                onChange={(e) =>
-                  setForm({ ...form, item_name: e.target.value })
-                }
-                onKeyDown={(e) => handleEnter(e, categoryRef)}
+                onChange={(e) => setForm({ ...form, item_name: e.target.value })}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") categoryRef.current?.focus();
+                }}
               />
 
               <input
@@ -573,10 +560,10 @@ function App() {
                 className="input"
                 placeholder="Category"
                 value={form.category}
-                onChange={(e) =>
-                  setForm({ ...form, category: e.target.value })
-                }
-                onKeyDown={(e) => handleEnter(e, quantityRef)}
+                onChange={(e) => setForm({ ...form, category: e.target.value })}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") quantityRef.current?.focus();
+                }}
               />
 
               <input
@@ -584,10 +571,10 @@ function App() {
                 className="input"
                 placeholder="Quantity"
                 value={form.quantity}
-                onChange={(e) =>
-                  setForm({ ...form, quantity: e.target.value })
-                }
-                onKeyDown={(e) => handleEnter(e, unitRef)}
+                onChange={(e) => setForm({ ...form, quantity: e.target.value })}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") unitRef.current?.focus();
+                }}
               />
 
               <input
@@ -595,10 +582,10 @@ function App() {
                 className="input"
                 placeholder="Unit"
                 value={form.unit}
-                onChange={(e) =>
-                  setForm({ ...form, unit: e.target.value })
-                }
-                onKeyDown={(e) => handleEnter(e, lowLimitRef)}
+                onChange={(e) => setForm({ ...form, unit: e.target.value })}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") lowLimitRef.current?.focus();
+                }}
               />
 
               <input
@@ -606,10 +593,10 @@ function App() {
                 className="input"
                 placeholder="Low Limit"
                 value={form.low_limit}
-                onChange={(e) =>
-                  setForm({ ...form, low_limit: e.target.value })
-                }
-                onKeyDown={(e) => handleEnter(e, expiryRef)}
+                onChange={(e) => setForm({ ...form, low_limit: e.target.value })}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") expiryRef.current?.focus();
+                }}
               />
 
               <input
@@ -617,14 +604,9 @@ function App() {
                 className="input"
                 placeholder="Expiry (DD-MM-YYYY)"
                 value={form.expiry}
-                onChange={(e) =>
-                  setForm({ ...form, expiry: e.target.value })
-                }
+                onChange={(e) => setForm({ ...form, expiry: e.target.value })}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    handleAddItem();
-                  }
+                  if (e.key === "Enter") handleAddItem();
                 }}
               />
             </div>
@@ -656,20 +638,14 @@ function App() {
                   }}
                 />
 
-                <button
-                  className="btn btn-red"
-                  onClick={() => setShowScanner(false)}
-                >
+                <button className="btn btn-red" onClick={() => setShowScanner(false)}>
                   Close Scanner
                 </button>
               </div>
             )}
 
             <div className="actions-center">
-              <button
-                className="btn btn-green"
-                onClick={handleAddItem}
-              >
+              <button className="btn btn-green" onClick={handleAddItem}>
                 {editId ? "Update Item" : "Add Item"}
               </button>
 
@@ -683,32 +659,64 @@ function App() {
         )}
 
         <div className="charts-grid">
-          <div className="glass-card section-card">
-            <h2 className="section-title">Stock by Item</h2>
+          <div className="inventory-table-card">
+            <h2 className="section-title">Inventory Items</h2>
 
-            <div className="chart-box">
-              <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={stockChartData}>
-                  <CartesianGrid
-                    strokeDasharray="3 3"
-                    stroke="rgba(255,255,255,0.12)"
-                  />
-                  <XAxis dataKey="name" stroke="#e5e7eb" />
-                  <YAxis stroke="#e5e7eb" />
-                  <Tooltip />
-                  <Legend />
-                  <Bar
-                    dataKey="quantity"
-                    fill="#60a5fa"
-                    radius={[10, 10, 0, 0]}
-                  />
-                  <Bar
-                    dataKey="low_limit"
-                    fill="#fbbf24"
-                    radius={[10, 10, 0, 0]}
-                  />
-                </BarChart>
-              </ResponsiveContainer>
+            <div className="table-tools">
+              <input
+                type="text"
+                placeholder="Search item..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+
+              <select
+                value={categoryFilter}
+                onChange={(e) => setCategoryFilter(e.target.value)}
+              >
+                <option value="">All Categories</option>
+
+                {[...new Set(items.map((item) => item.category))].map((cat) => (
+                  <option key={cat} value={cat}>
+                    {cat}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="table-wrapper">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Item</th>
+                    <th>Category</th>
+                    <th>Qty</th>
+                    <th>Unit</th>
+                    <th>Low</th>
+                    <th>Expiry</th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {items
+                    .filter((item) =>
+                      item.item_name.toLowerCase().includes(search.toLowerCase())
+                    )
+                    .filter((item) =>
+                      categoryFilter ? item.category === categoryFilter : true
+                    )
+                    .map((item) => (
+                      <tr key={item.id}>
+                        <td>{item.item_name}</td>
+                        <td>{item.category}</td>
+                        <td>{item.quantity}</td>
+                        <td>{item.unit}</td>
+                        <td>{item.low_limit}</td>
+                        <td>{item.expiry}</td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
             </div>
           </div>
 
@@ -732,6 +740,7 @@ function App() {
                       />
                     ))}
                   </Pie>
+
                   <Tooltip />
                   <Legend />
                 </PieChart>
@@ -745,44 +754,26 @@ function App() {
 
           <div className="form-grid">
             <input
-              ref={saleItemRef}
               className="input"
               placeholder="Item Name"
               value={saleForm.item_name}
-              onChange={(e) =>
-                setSaleForm({ ...saleForm, item_name: e.target.value })
-              }
-              onKeyDown={(e) => handleEnter(e, saleQtyRef)}
+              onChange={(e) => setSaleForm({ ...saleForm, item_name: e.target.value })}
             />
 
             <input
-              ref={saleQtyRef}
               className="input"
               placeholder="Quantity Sold"
               value={saleForm.quantity_sold}
               onChange={(e) =>
-                setSaleForm({
-                  ...saleForm,
-                  quantity_sold: e.target.value,
-                })
+                setSaleForm({ ...saleForm, quantity_sold: e.target.value })
               }
-              onKeyDown={(e) => handleEnter(e, salePriceRef)}
             />
 
             <input
-              ref={salePriceRef}
               className="input"
               placeholder="Price"
               value={saleForm.price}
-              onChange={(e) =>
-                setSaleForm({ ...saleForm, price: e.target.value })
-              }
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  handleAddSale();
-                }
-              }}
+              onChange={(e) => setSaleForm({ ...saleForm, price: e.target.value })}
             />
           </div>
 
@@ -875,11 +866,9 @@ function App() {
                     <tr
                       key={item.id}
                       className={
-                        expiryInfo.daysLeft !== null &&
-                        expiryInfo.daysLeft < 0
+                        expiryInfo.daysLeft !== null && expiryInfo.daysLeft < 0
                           ? "expired-row"
-                          : expiryInfo.daysLeft !== null &&
-                            expiryInfo.daysLeft <= 3
+                          : expiryInfo.daysLeft !== null && expiryInfo.daysLeft <= 3
                           ? "warning-row"
                           : ""
                       }
@@ -893,9 +882,7 @@ function App() {
                       <td>{item.expiry}</td>
 
                       <td>
-                        <span
-                          className={`badge ${getStockStatusClass(item)}`}
-                        >
+                        <span className={`badge ${getStockStatusClass(item)}`}>
                           {getStockStatus(item)}
                         </span>
                       </td>
@@ -931,10 +918,7 @@ function App() {
 
                 {filteredItems.length === 0 && (
                   <tr>
-                    <td
-                      colSpan="10"
-                      style={{ textAlign: "center", padding: "18px" }}
-                    >
+                    <td colSpan="10" style={{ textAlign: "center", padding: "18px" }}>
                       No items found
                     </td>
                   </tr>
@@ -988,10 +972,7 @@ function App() {
             Print Report
           </button>
 
-          <button
-            className="btn btn-gray"
-            onClick={() => setUser(null)}
-          >
+          <button className="btn btn-gray" onClick={() => setUser(null)}>
             Logout
           </button>
         </div>
@@ -1003,10 +984,7 @@ function App() {
     <div className="centered">
       <div className="glass-card login-box">
         <h2 className="title">Inventory Login</h2>
-
-        <p className="subtitle">
-          Modern restaurant stock management
-        </p>
+        <p className="subtitle">Modern restaurant stock management</p>
 
         <input
           className="input"
@@ -1014,12 +992,6 @@ function App() {
           placeholder="Username"
           value={username}
           onChange={(e) => setUsername(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              document.querySelector('input[type="password"]')?.focus();
-            }
-          }}
         />
 
         <div style={{ height: "12px" }} />

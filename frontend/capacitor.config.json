@@ -1,0 +1,8 @@
+{
+  "appId": "com.abhiyadav.inventory",
+  "appName": "Restaurant Inventory",
+  "webDir": "dist",
+  "server": {
+    "androidScheme": "http"
+  }
+}
